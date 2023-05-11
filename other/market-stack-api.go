@@ -1,12 +1,15 @@
 package other
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"index-bot/logger"
+	"index-bot/models"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -17,6 +20,69 @@ type MarketStackRest struct {
 	fails       uint16 // If request failed, try again up to 3 times (delay 250/500/750ms) - after 3rd failed attempt => panic
 }
 
+// Collects all EOD stack entries from today back to Janurary 1st and returns average.
+func (rest *MarketStackRest) RequestYTD(symbol string) (models.StockData, error) {
+	year, month, day := time.Now().Date()
+	baseURI := fmt.Sprintf(
+		"/eod?symbols=%s&date_from=%d-01-01&date_to=%d-%s%d-%s%d&limit=1000",
+		symbol,
+		year,
+		year,
+		sif(month < 10, "0", ""),
+		month,
+		sif(day < 10, "0", ""),
+		day,
+	)
+	var avgOpen, avgClose float32 = 0, 0
+	var counter, offset uint = 0, 0
+
+	for {
+		raw, err := rest.Request(fmt.Sprintf("%s&offset=%d", baseURI, offset), nil)
+		if err != nil {
+			return models.StockData{}, err
+		}
+
+		res := models.HistoryStockData{}
+		err = json.Unmarshal(raw, &res)
+		if err != nil {
+			return models.StockData{}, errors.New("failed to parse received data from MarketStack API")
+		}
+
+		if res.Pagination.Count == 0 || len(res.Data) == 0 {
+			break
+		}
+
+		for _, stock := range res.Data {
+			counter++
+			avgOpen = avgOpen + (stock.Open-avgOpen)/float32(counter)
+			avgClose = avgClose + (stock.Close-avgClose)/float32(counter)
+		}
+
+		offset += res.Pagination.Count
+	}
+
+	return models.StockData{
+		Open:   avgOpen,
+		Close:  avgClose,
+		Symbol: symbol,
+	}, nil
+}
+
+func (rest *MarketStackRest) RequestEOD(symbol string) (models.StockData, error) {
+	raw, err := rest.Request("/tickers/"+symbol+"/eod/latest", nil)
+	if err != nil {
+		return models.StockData{}, err
+	}
+
+	res := models.StockData{}
+	err = json.Unmarshal(raw, &res)
+	if err != nil {
+		return models.StockData{}, errors.New("failed to parse received data from MarketStack API")
+	}
+
+	return res, nil
+}
+
 func (rest *MarketStackRest) Request(route string, jsonPayload interface{}) ([]byte, error) {
 	now := time.Now().Unix()
 	if rest.lockedTo != 0 && rest.lockedTo > now {
@@ -25,7 +91,12 @@ func (rest *MarketStackRest) Request(route string, jsonPayload interface{}) ([]b
 		time.Sleep(time.Second * time.Duration(rest.lockedTo-now))
 	}
 
-	request, err := http.NewRequest("GET", fmt.Sprintf("https://api.marketstack.com/v1%s&access_key=%s", route, rest.AccessKey), nil)
+	format := "?"
+	if strings.Contains(route, format) {
+		format = "&"
+	}
+
+	request, err := http.NewRequest("GET", fmt.Sprintf("https://api.marketstack.com/v1%s%saccess_key=%s", route, format, rest.AccessKey), nil)
 	if err != nil {
 		return nil, errors.New("failed to initialize new request: " + err.Error())
 	}
@@ -67,4 +138,13 @@ func (rest *MarketStackRest) Request(route string, jsonPayload interface{}) ([]b
 	}
 
 	return body, nil
+}
+
+func CreateMarketStackRest(accessKey string, limit uint16) MarketStackRest {
+	return MarketStackRest{
+		AccessKey:   accessKey,
+		requestLeft: limit,
+		lockedTo:    0,
+		fails:       0,
+	}
 }
