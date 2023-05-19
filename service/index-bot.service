@@ -1,0 +1,17 @@
+[Unit]
+Description = HTTP API server made to render index changes, made for Market Mornings.
+After = network.target
+
+[Service]
+Type = exec
+Restart = on-failure
+ExecStart = /etc/vironicer/IndexBot/service/index-bot.o
+WorkingDirectory= /etc/vironicer/IndexBot
+MemoryAccounting=true
+MemoryHigh=512M
+MemoryMax=2G
+RestartSec = 120
+TimeoutStartSec = infinity
+
+[Install]
+WantedBy = multi-user.target

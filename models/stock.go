@@ -5,47 +5,37 @@ import (
 	"strconv"
 )
 
+type HistoricalMarketStockData struct {
+	Symbol     string `json:"symbol"`
+	Historical []StockData
+}
+
 type StockData struct {
-	Open float32 `json:"open"`
-	// High   float32 `json:"high"`
-	// Low    float32 `json:"low"`
-	Close float32 `json:"close"`
-	// Volume float32 `json:"volume"`
-	// Date   string  `json:"date"`
-	Symbol string `json:"symbol"`
+	Date           string  `json:"date"`
+	Open           float32 `json:"open"`
+	High           float32 `json:"high"`
+	Low            float32 `json:"low"`
+	Close          float32 `json:"close"`
+	Change         float32 `json:"change"`        // close / open
+	ChangePercent  float32 `json:"changePercent"` // close / open * 100 - 100
+	ChangeOverTime float32 `json:"changeOverTime"`
 }
 
-// Returns difference between open & close values - whether it's worth more or less (in %).
-func (stock StockData) Diff() float64 {
-	return float64(stock.Close)/float64(stock.Open)*100 - 100
-}
-
-func (stock StockData) DiffString() string {
-	v := stock.Diff()
+func (data HistoricalMarketStockData) DiffEODPaint() (string, color.RGBA) {
+	v := float64(data.Historical[0].Close/data.Historical[1].Close*100 - 100)
 	if v >= 0 {
-		return "+" + strconv.FormatFloat(v, 'f', 2, 64) + "%"
+		return "+" + strconv.FormatFloat(v, 'f', 2, 32) + "%", color.RGBA{0, 111, 0, 200}
 	} else {
-		return strconv.FormatFloat(v, 'f', 2, 64) + "%"
+		return strconv.FormatFloat(v, 'f', 2, 32) + "%", color.RGBA{168, 0, 0, 200}
 	}
 }
 
-func (stock StockData) DiffPaint() (string, color.RGBA) {
-	v := stock.Diff()
+// Returns diff from entire slice (YEAR.01.01 open -> YEAR.MM.DD close)
+func (data HistoricalMarketStockData) DiffYTDPaint() (string, color.RGBA) {
+	v := float64(data.Historical[0].Open/data.Historical[len(data.Historical)-1].Close*100 - 100)
 	if v >= 0 {
-		return "+" + strconv.FormatFloat(v, 'f', 2, 64) + "%", color.RGBA{0, 111, 0, 200}
+		return "+" + strconv.FormatFloat(v, 'f', 2, 32) + "%", color.RGBA{0, 111, 0, 200}
 	} else {
-		return strconv.FormatFloat(v, 'f', 2, 64) + "%", color.RGBA{168, 0, 0, 200}
+		return strconv.FormatFloat(v, 'f', 2, 32) + "%", color.RGBA{168, 0, 0, 200}
 	}
-}
-
-type HistoryStockData struct {
-	Pagination Pagination
-	Data       []StockData
-}
-
-type Pagination struct {
-	Limit  uint `json:"limit"`
-	Offset uint `json:"offset"`
-	Count  uint `json:"count"`
-	Total  uint `json:"total"`
 }
